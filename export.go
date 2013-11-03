@@ -41,6 +41,9 @@ func handleIntrospectionPartialPathRequest(possible_path []string, partial_path 
 		begin := strings.Index(path, partial_path)
 		if begin != -1 {
 			path = path[begin+len(partial_path):]
+			if len(path) == 0 {
+				continue
+			}
 			if path[0] == '/' {
 				path = path[1:]
 			}
