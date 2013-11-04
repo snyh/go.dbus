@@ -33,7 +33,6 @@ func (f foo) ThrowError1(i uint32) (uint32, *dbus.Error) {
 }
 
 func main() {
-	conn, _ := dbus.SessionBus()
 	f := foo{
 		Name: "snyh",
 		Age:  26,
@@ -41,8 +40,11 @@ func main() {
 	f.Singing = func(song string, times uint32) {
 		fmt.Println("I'm singing the song ", song, times, "times")
 	}
+
+	// dbus API you use
+	conn, _ := dbus.SessionBus()
 	exporter.Export(conn, &f, "com.github.guelfey.Demo", "/com/github/guelfey/Demo", "com.github.guelfey.Demo")
-	exporter.Export(conn, f, "com.github.guelfey.Demo", "/com/github/snyh/Demo", "com.github.snyh.Test")
+	// over all
 	fmt.Println("Listening on com.github.guelfey.Demo / /com/github/guelfey/Demo ...")
 	select {}
 }

@@ -255,3 +255,6 @@ func typeFor(s string) (t reflect.Type) {
 	}
 	return
 }
+func TypeFor(s string) string {
+	return typeFor(s).Name()
+}
