@@ -127,6 +127,25 @@ func installOnSessionAny(v interface{}, dest_name string, path ObjectPath, iface
 	return export(conn, v, dest_name, path, iface)
 }
 
+func setupSignalHandler(c *Conn, v interface{}, path ObjectPath, iface string) {
+	value := reflect.ValueOf(v).Elem()
+	n := value.NumField()
+	for i := 0; i < n; i++ {
+		fn := value.Field(i)
+		if fn.Type().Kind() == reflect.Func {
+			name := iface + "." + reflect.TypeOf(v).Elem().Field(i).Name
+			fn.Set(reflect.MakeFunc(fn.Type(), func(in []reflect.Value) []reflect.Value {
+				inputs := make([]interface{}, len(in))
+				for i, v := range in {
+					inputs[i] = v.Interface()
+				}
+				c.Emit(path, name, inputs)
+				return nil
+			}))
+		}
+	}
+}
+
 //TODO: Need exported?
 func export(c *Conn, v interface{}, name string, path ObjectPath, iface string) error {
 	not_registered := true
@@ -143,6 +162,7 @@ func export(c *Conn, v interface{}, name string, path ObjectPath, iface string) 
 			return errors.New("name " + name + " already taken")
 		}
 	}
+	setupSignalHandler(c, v, path, iface)
 
 	err := c.Export(v, path, iface)
 	if err != nil {
