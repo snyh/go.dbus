@@ -83,7 +83,13 @@ func (i PropertiesProxy) Set(ifc_name string, prop_name string, value Variant) *
 		v := getValueOf(ifc).FieldByName(prop_name)
 		if ok && v.IsValid() {
 			if v.CanAddr() && "read" != t.Tag.Get("access") && v.Type() == reflect.TypeOf(value.Value()) {
-				v.Set(reflect.ValueOf(value.Value()))
+				prop_val := reflect.ValueOf(value.Value())
+				prop_old_val := v.Interface()
+				v.Set(prop_val)
+				fn := getValueOf(ifc).MethodByName("OnPropertiesChanged")
+				if fn.IsValid() && !fn.IsNil() {
+					fn.Call([]reflect.Value{reflect.ValueOf(prop_name), reflect.ValueOf(prop_old_val)})
+				}
 				return nil
 			} else {
 				return &errPropertyNotWritable
