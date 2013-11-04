@@ -2,7 +2,6 @@ package dbus
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"unicode"
@@ -172,6 +171,14 @@ func (conn *Conn) handleCall(msg *Message) {
 		}
 		ret = ret[:out_n-1]
 	}
+	for i, r := range ret {
+		if r.Type().Implements(dbusObjectInterface) {
+			ret[i] = reflect.ValueOf(r.Interface().(DBusObject).GetDBusInfo().ObjectPath)
+			//TODO: which session to install
+			InstallOnSession(r.Interface().(DBusObject))
+		}
+
+	}
 	if msg.Flags&FlagNoReplyExpected == 0 {
 		reply := new(Message)
 		reply.Type = TypeMethodReply
@@ -229,7 +236,6 @@ func (conn *Conn) Emit(path ObjectPath, name string, values ...interface{}) erro
 		return ErrClosed
 	}
 	conn.out <- msg
-	fmt.Println("Emit:", msg)
 	return nil
 }
 

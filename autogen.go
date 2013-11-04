@@ -1,8 +1,20 @@
-package exporter
+package dbus
 
 import "reflect"
-import "github.com/guelfey/go.dbus"
 import "errors"
+import "strings"
+
+var (
+	dbusErrorType = reflect.TypeOf(Error{})
+)
+
+func splitObjectPath(path ObjectPath) (parent, base string) {
+	i := strings.LastIndex(string(path), "/")
+	if i != -1 && i < len(string(path))-2 {
+		return string(path)[:i], string(path)[i+1:]
+	}
+	return
+}
 
 func getTypeOf(ifc interface{}) (r reflect.Type) {
 	r = reflect.TypeOf(ifc)
@@ -20,34 +32,40 @@ func getValueOf(ifc interface{}) (r reflect.Value) {
 	return
 }
 
-func genInterfaceInfo(ifc interface{}) *Interface {
-	ifc_info := new(Interface)
+func genInterfaceInfo(ifc interface{}) *InterfaceInfo {
+	ifc_info := new(InterfaceInfo)
 	o_type := reflect.TypeOf(ifc)
 	n := o_type.NumMethod()
 
 	for i := 0; i < n; i++ {
 		name := o_type.Method(i).Name
-		method := Method{}
+		if name == "GetDBusInfo" && o_type.Implements(dbusObjectInterface) {
+			continue
+		}
+		method := MethodInfo{}
 		method.Name = name
 
 		m := o_type.Method(i).Type
 		n_in := m.NumIn()
 		n_out := m.NumOut()
-		args := make([]Arg, 0)
+		args := make([]ArgInfo, 0)
 		//Method's first paramter is the struct which this method bound to.
 		for i := 1; i < n_in; i++ {
-			args = append(args, Arg{
-				Type:      dbus.SignatureOfType(m.In(i)).String(),
+			t := m.In(i)
+			args = append(args, ArgInfo{
+				Type:      SignatureOfType(t).String(),
 				Direction: "in",
 			})
 		}
 		for i := 0; i < n_out; i++ {
-			if m.Out(i) != reflect.TypeOf(&dbus.Error{}) {
-				args = append(args, Arg{
-					Type:      dbus.SignatureOfType(m.Out(i)).String(),
-					Direction: "out",
-				})
+			t := m.Out(i)
+			if t == reflect.TypeOf(dbusErrorType) {
+				continue
 			}
+			args = append(args, ArgInfo{
+				Type:      SignatureOfType(t).String(),
+				Direction: "out",
+			})
 		}
 		method.Args = args
 		ifc_info.Methods = append(ifc_info.Methods, method)
@@ -61,15 +79,15 @@ func genInterfaceInfo(ifc interface{}) *Interface {
 	for i := 0; i < n; i++ {
 		field := o_type.Field(i)
 		if field.Type.Kind() == reflect.Func {
-			ifc_info.Signals = append(ifc_info.Signals, Signal{
+			ifc_info.Signals = append(ifc_info.Signals, SignalInfo{
 				Name: field.Name,
-				Args: func() []Arg {
+				Args: func() []ArgInfo {
 					n := field.Type.NumIn()
-					ret := make([]Arg, n)
+					ret := make([]ArgInfo, n)
 					for i := 0; i < n; i++ {
 						arg := field.Type.In(i)
-						ret[i] = Arg{
-							Type: dbus.SignatureOfType(arg).String(),
+						ret[i] = ArgInfo{
+							Type: SignatureOfType(arg).String(),
 						}
 					}
 					return ret
@@ -80,9 +98,9 @@ func genInterfaceInfo(ifc interface{}) *Interface {
 			if access != "read" {
 				access = "readwrite"
 			}
-			ifc_info.Properties = append(ifc_info.Properties, Property{
+			ifc_info.Properties = append(ifc_info.Properties, PropertyInfo{
 				Name:   field.Name,
-				Type:   dbus.SignatureOfType(field.Type).String(),
+				Type:   SignatureOfType(field.Type).String(),
 				Access: access,
 			})
 		}
@@ -91,16 +109,9 @@ func genInterfaceInfo(ifc interface{}) *Interface {
 	return ifc_info
 }
 
-type DBusInfo struct {
-	Dest, ObjectPath, Interface string
-}
-type DBusObject interface {
-	GetDBusInfo() DBusInfo
-}
-
 func InstallOnSession(obj DBusObject) error {
 	info := obj.GetDBusInfo()
-	path := dbus.ObjectPath(info.ObjectPath)
+	path := ObjectPath(info.ObjectPath)
 	if path.IsValid() {
 		return installOnSessionAny(obj, info.Dest, path, info.Interface)
 	}
@@ -108,8 +119,8 @@ func InstallOnSession(obj DBusObject) error {
 }
 
 //TODO: Need exported?
-func installOnSessionAny(v interface{}, dest_name string, path dbus.ObjectPath, iface string) error {
-	conn, err := dbus.SessionBus()
+func installOnSessionAny(v interface{}, dest_name string, path ObjectPath, iface string) error {
+	conn, err := SessionBus()
 	if err != nil {
 		return err
 	}
@@ -117,7 +128,7 @@ func installOnSessionAny(v interface{}, dest_name string, path dbus.ObjectPath, 
 }
 
 //TODO: Need exported?
-func export(c *dbus.Conn, v interface{}, name string, path dbus.ObjectPath, iface string) error {
+func export(c *Conn, v interface{}, name string, path ObjectPath, iface string) error {
 	not_registered := true
 	for _, _name := range c.Names() {
 		if _name == name {
@@ -127,8 +138,8 @@ func export(c *dbus.Conn, v interface{}, name string, path dbus.ObjectPath, ifac
 
 	}
 	if not_registered {
-		reply, _ := c.RequestName(name, dbus.NameFlagDoNotQueue)
-		if reply != dbus.RequestNameReplyPrimaryOwner {
+		reply, _ := c.RequestName(name, NameFlagDoNotQueue)
+		if reply != RequestNameReplyPrimaryOwner {
 			return errors.New("name " + name + " already taken")
 		}
 	}
@@ -137,9 +148,16 @@ func export(c *dbus.Conn, v interface{}, name string, path dbus.ObjectPath, ifac
 	if err != nil {
 		return err
 	}
-	infos := c.GetObjectInfos(path)
+	infos := c.handlers[path]
+	parentpath, basepath := splitObjectPath(path)
+	if parent, ok := c.handlers[ObjectPath(parentpath)]; ok {
+		intro := parent["org.freedesktop.DBus.Introspectable"]
+		if reflect.TypeOf(intro).AssignableTo(introspectProxyType) {
+			intro.(IntrospectProxy).child[basepath] = true
+		}
+	}
 	if _, ok := infos["org.freedesktop.DBus.Introspectable"]; !ok {
-		infos["org.freedesktop.DBus.Introspectable"] = IntrospectProxy{infos}
+		infos["org.freedesktop.DBus.Introspectable"] = IntrospectProxy{infos, make(map[string]bool)}
 	}
 	if _, ok := infos["org.freedesktop.DBus.Properties"]; !ok {
 		infos["org.freedesktop.DBus.Properties"] = PropertiesProxy{infos}
