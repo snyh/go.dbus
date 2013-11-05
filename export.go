@@ -60,28 +60,6 @@ func handleIntrospectionPartialPathRequest(possible_path []string, partial_path 
 	return xml
 }
 
-func (conn *Conn) HandleSignal(signal *Signal) {
-	if node, ok := conn.handlers[signal.Path]; ok {
-		idx := strings.LastIndex(signal.Name, ".")
-		iface := signal.Name[:idx]
-		if ifc, ok := node[iface]; ok {
-			name := signal.Name[idx+1:]
-			v := reflect.ValueOf(ifc)
-			if v.Kind() == reflect.Ptr {
-				v = v.Elem()
-			}
-			sig_handler := v.FieldByName(name)
-			if sig_handler.IsValid() && !sig_handler.IsNil() && sig_handler.Type().NumOut() == 0 && sig_handler.Type().NumIn() == len(signal.Body) {
-				inputs := make([]reflect.Value, len(signal.Body))
-				for i := 0; i < len(inputs); i++ {
-					inputs[i] = reflect.ValueOf(signal.Body[i])
-				}
-				sig_handler.Call(inputs)
-			}
-		}
-	}
-}
-
 // handleCall handles the given method call (i.e. looks if it's one of the
 // pre-implemented ones and searches for a corresponding handler if not).
 func (conn *Conn) handleCall(msg *Message) {

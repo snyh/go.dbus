@@ -39,7 +39,7 @@ func genInterfaceInfo(ifc interface{}) *InterfaceInfo {
 
 	for i := 0; i < n; i++ {
 		name := o_type.Method(i).Name
-		if name == "GetDBusInfo" && o_type.Implements(dbusObjectInterface) {
+		if (name == "GetDBusInfo" && o_type.Implements(dbusObjectInterface)) || name == "OnPropertiesChanged" {
 			continue
 		}
 		method := MethodInfo{}
@@ -139,7 +139,7 @@ func setupSignalHandler(c *Conn, v interface{}, path ObjectPath, iface string) {
 				for i, v := range in {
 					inputs[i] = v.Interface()
 				}
-				c.Emit(path, name, inputs)
+				c.Emit(path, name, inputs...)
 				return nil
 			}))
 		}
