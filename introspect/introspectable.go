@@ -2,7 +2,7 @@ package introspect
 
 import (
 	"encoding/xml"
-	"github.com/guelfey/go.dbus"
+	"dlib/dbus"
 	"reflect"
 )
 

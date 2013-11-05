@@ -1,9 +1,9 @@
 package main
 
 import (
+	"dlib/dbus"
+	"dlib/dbus/introspect"
 	"encoding/json"
-	"github.com/guelfey/go.dbus"
-	"github.com/guelfey/go.dbus/introspect"
 	"os"
 )
 

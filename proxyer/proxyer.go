@@ -10,12 +10,12 @@ import "io"
 import "flag"
 import "bytes"
 
-import "github.com/guelfey/go.dbus/exporter"
-import "github.com/guelfey/go.dbus"
+import "dlib/dbus/exporter"
+import "dlib/dbus"
 
 var __GLOBAL_TEMPLATE = `
 package main
-import "github.com/guelfey/go.dbus"
+import "dlib/dbus"
 var __conn *dbus.Conn = nil
 func GetSessionBus() *dbus.Conn {
 	if __conn  == nil {

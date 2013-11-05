@@ -1,8 +1,8 @@
 package main
 
 import (
+	"dlib/dbus"
 	"fmt"
-	"github.com/guelfey/go.dbus"
 	"os"
 )
 

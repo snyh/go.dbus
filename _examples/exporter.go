@@ -1,50 +1,64 @@
 package main
 
-import (
-	"fmt"
-	"github.com/guelfey/go.dbus"
-	"github.com/guelfey/go.dbus/exporter"
-)
+import "fmt"
+import "dlib/dbus"
 
-type foo struct {
-	__info__ string `interface:"snyh.test.foo",disable:"String,Age"`
-
-	Name string `access:"read"`
-	Age  uint32
-	hide int
-
-	Singing func(song string, times uint32)
-	Cry     func(happy bool, dB float64) `arg1:"happy",arg2:dB"`
-
-	__infoFoo__ byte `args:"name,arg"`
+type DesktopManager struct {
+	Changed func(int32)
+	Name    string
 }
 
-func (f *foo) Foo() (string, *dbus.Error) {
-	fmt.Println(f)
-	return "bar", nil
+func (m *DesktopManager) ListAutoStart() []string {
+	return []string{}
 }
 
-func (f foo) Bar() string {
-	return "I will never thraw an dbus.Error"
+func (m DesktopManager) OnPropertiesChanged(name string, old interface{}) {
+	fmt.Println("Property ", name, " changed  ", old, " =====>", m.Name)
+}
+func (m *DesktopManager) GetDBusInfo() dbus.DBusInfo {
+	return dbus.DBusInfo{
+		"com.deepin.dde.Desktopmanager",
+		"/com/deepin/dde/Desktopmananger",
+		"com.deepin.dde.Desktopmananger",
+	}
 }
 
-func (f foo) ThrowError1(i uint32) (uint32, *dbus.Error) {
-	return 0, &dbus.Error{"BigError", []interface{}{"I'm an big error boom"}}
+//auto return an sub object to dbus
+func (m *DesktopManager) GetDesktopEntryById(id string) *DesktopEntry {
+	return NewDesktopEntry(id)
+}
+
+type DesktopEntry struct {
+	ID          string
+	Name        string
+	Exec        string
+	Description string
+	IsAutoStart bool
+	IsTerimal   bool
+	dbusID      string
+}
+
+func NewDesktopEntry(id string) *DesktopEntry {
+	return &DesktopEntry{
+		dbusID: id,
+	}
+}
+
+func (e *DesktopEntry) GetDBusInfo() dbus.DBusInfo {
+	return dbus.DBusInfo{
+		"com.deepin.dde.Desktopmanager",
+		"/com/deepin/dde/Desktopmananger/Entry" + e.dbusID,
+		"com.deepin.dde.Desktopmananger.DesktopEntry",
+	}
+}
+
+func (e *DesktopEntry) GetLocaleString(field string) {
 }
 
 func main() {
-	f := foo{
-		Name: "snyh",
-		Age:  26,
-	}
-	f.Singing = func(song string, times uint32) {
-		fmt.Println("I'm singing the song ", song, times, "times")
-	}
-
-	// dbus API you use
-	conn, _ := dbus.SessionBus()
-	exporter.Export(conn, &f, "com.github.guelfey.Demo", "/com/github/guelfey/Demo", "com.github.guelfey.Demo")
-	// over all
-	fmt.Println("Listening on com.github.guelfey.Demo / /com/github/guelfey/Demo ...")
+	m := DesktopManager{}
+	m.Name = "snyh"
+	dbus.InstallOnSession(&m)
+	m.Changed(3) //emit an signal
 	select {}
 }

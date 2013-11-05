@@ -3,8 +3,8 @@
 package prop
 
 import (
-	"github.com/guelfey/go.dbus"
-	"github.com/guelfey/go.dbus/introspect"
+	"dlib/dbus"
+	"dlib/dbus/introspect"
 	"sync"
 )
 

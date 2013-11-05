@@ -1,10 +1,10 @@
 package main
 
 import (
+	"dlib/dbus"
+	"dlib/dbus/introspect"
+	"dlib/dbus/prop"
 	"fmt"
-	"github.com/guelfey/go.dbus"
-	"github.com/guelfey/go.dbus/introspect"
-	"github.com/guelfey/go.dbus/prop"
 	"os"
 )
 
