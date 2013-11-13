@@ -1,5 +1,6 @@
 package main
 
+import "path"
 import "encoding/xml"
 import "encoding/json"
 import "fmt"
@@ -10,65 +11,28 @@ import "io"
 import "flag"
 import "bytes"
 
-import "dlib/dbus/exporter"
 import "dlib/dbus"
 
-var __GLOBAL_TEMPLATE = `
-package main
-import "dlib/dbus"
-var __conn *dbus.Conn = nil
-func GetSessionBus() *dbus.Conn {
-	if __conn  == nil {
-		var err error
-		__conn, err = dbus.SessionBus()
-		if err != nil {
-			panic(err)
-		}
-	}
-	return __conn
-}
-`
-
-var __IFC_TEMPLATE = `
-var __obj{{ExportName}} *dbus.Object = nil
-type {{ExportName}} struct {
-	core *dbus.Object
-}
-{{$obj_name := .Name}}
-{{range .Methods }}
-func (__obj__ {{ExportName }}) {{.Name}} ({{GetParamterInsProto .Args}}) ({{GetParamterOutsProto .Args}}) {
-	__obj__.core.Call("{{$obj_name}}.{{.Name}}", 0{{GetParamterNames .Args}}).Store({{GetParamterOuts .Args}})
-	return
-}
-{{end}}
-
-func Get{{ExportName}}() {{ExportName}} {
-	if __obj{{ExportName}} == nil {
-		return {{ExportName}}{GetSessionBus().Object("{{DestName}}", "{{PathName}}")}
-	} else {
-		return {{ExportName}}{__obj{{ExportName}}}
-	}
-}
-
-`
-
-var __ARG_PREFIX = "__arg_"
-
-func GenInterfaceCode(reader io.Reader, writer io.Writer, dest, path, ifc_name, exportName string) {
+func GenInterfaceCode(pkgName string, info dbus.InterfaceInfo, writer io.Writer, dest, ifc_name, exportName string) {
+	filterGoKeyWord(&info)
+	fmt.Println("d:", dest, "i:", ifc_name, "e:", exportName)
 	funcs := template.FuncMap{
-		"PathName":   func() string { return path },
+		"PkgName":    func() string { return pkgName },
+		"OBJ_NAME":   func() string { return "obj" },
+		"TypeFor":    func(s string) string { return dbus.TypeFor(s) },
 		"DestName":   func() string { return dest },
+		"IfcName":    func() string { return ifc_name },
 		"ExportName": func() string { return exportName },
-		"GetParamterNames": func(args []exporter.Arg) (ret string) {
+		"GetParamterNames": func(args []dbus.ArgInfo) (ret string) {
 			for _, arg := range args {
 				if arg.Direction != "out" {
 					ret += ", "
-					ret += __ARG_PREFIX + arg.Name
+					ret += arg.Name
 				}
 			}
 			return
 		},
-		"GetParamterOuts": func(args []exporter.Arg) (ret string) {
+		"GetParamterOuts": func(args []dbus.ArgInfo) (ret string) {
 			var notFirst = false
 			for _, arg := range args {
 				if arg.Direction != "in" {
@@ -76,12 +40,12 @@ func GenInterfaceCode(reader io.Reader, writer io.Writer, dest, path, ifc_name, 
 						ret += ","
 					}
 					notFirst = true
-					ret += "&" + __ARG_PREFIX + arg.Name
+					ret += "&" + arg.Name
 				}
 			}
 			return
 		},
-		"GetParamterOutsProto": func(args []exporter.Arg) (ret string) {
+		"GetParamterOutsProto": func(args []dbus.ArgInfo) (ret string) {
 			var notFirst = false
 			for _, arg := range args {
 				if arg.Direction != "in" {
@@ -89,12 +53,12 @@ func GenInterfaceCode(reader io.Reader, writer io.Writer, dest, path, ifc_name, 
 						ret += ","
 					}
 					notFirst = true
-					ret += __ARG_PREFIX + arg.Name + " " + dbus.TypeFor(arg.Type)
+					ret += arg.Name + " " + dbus.TypeFor(arg.Type)
 				}
 			}
 			return
 		},
-		"GetParamterInsProto": func(args []exporter.Arg) (ret string) {
+		"GetParamterInsProto": func(args []dbus.ArgInfo) (ret string) {
 			var notFirst = false
 			for _, arg := range args {
 				if arg.Direction != "out" {
@@ -102,20 +66,19 @@ func GenInterfaceCode(reader io.Reader, writer io.Writer, dest, path, ifc_name, 
 						ret += ","
 					}
 					notFirst = true
-					ret += __ARG_PREFIX + arg.Name + " " + dbus.TypeFor(arg.Type)
+					ret += arg.Name + " " + dbus.TypeFor(arg.Type)
 				}
 			}
 			return
 		},
 	}
 	templ := template.Must(template.New(exportName).Funcs(funcs).Parse(__IFC_TEMPLATE))
-	info := GetInterfaceInfo(reader, ifc_name)
 	templ.Execute(writer, info)
 }
 
-func GetInterfaceInfo(reader io.Reader, ifc_name string) exporter.Interface {
+func GetInterfaceInfo(reader io.Reader, ifc_name string) dbus.InterfaceInfo {
 	decoder := xml.NewDecoder(reader)
-	obj := exporter.Node{}
+	obj := dbus.NodeInfo{}
 	decoder.Decode(&obj)
 	for _, ifc := range obj.Interfaces {
 		if ifc.Name == ifc_name {
@@ -126,11 +89,15 @@ func GetInterfaceInfo(reader io.Reader, ifc_name string) exporter.Interface {
 }
 
 type _Interface struct {
-	Type, File, Dest, Path, Name, ObjName string
+	GoFile, XMLFile, Dest, ObjectPath, Interface, ObjectName, TestPath string
 }
 type _Config struct {
 	NotExportBus bool
-	OutputPath   string
+	OutputDir    string
+	InputDir     string
+	PkgName      string
+	DestName     string
+	BusType      string
 }
 
 type Infos struct {
@@ -149,51 +116,76 @@ func loadInfo(path string) Infos {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(info)
 	return info
 }
 
 func parse_info() Infos {
 	var outputPath, inputFile string
-	flag.StringVar(&outputPath, "out", "dbusproxy.go", "the file to save the generated code")
+	flag.StringVar(&outputPath, "out", "out", "the file to save the generated code")
 	flag.StringVar(&inputFile, "in", "dbus.in.json", "the config file path")
 	infos := loadInfo(inputFile)
-	if outputPath != "dbusproxy.go" {
-		infos.Config.OutputPath = outputPath
-	} else if len(infos.Config.OutputPath) == 0 {
-		infos.Config.OutputPath = outputPath
+	if outputPath != "out" {
+		infos.Config.OutputDir = outputPath
+	} else if len(infos.Config.OutputDir) == 0 {
+		infos.Config.OutputDir = outputPath
 	}
 	return infos
 }
 
 func main() {
 	infos := parse_info()
-	writer, err := os.Create(infos.Config.OutputPath)
+	os.MkdirAll(infos.Config.OutputDir, 0755)
+	writer, err := os.Create(path.Join(infos.Config.OutputDir, "init.go"))
 	if err != nil {
 		panic(err)
 	}
-	writer.WriteString(__GLOBAL_TEMPLATE)
+	template.Must(template.New("main").Funcs(template.FuncMap{
+		"GetBusType": func() string { return infos.Config.BusType },
+		"PkgName":    func() string { return infos.Config.PkgName },
+	}).Parse(__GLOBAL_TEMPLATE)).Execute(writer, nil)
+
+	/*writer.WriteString(__GLOBAL_TEMPLATE)*/
+	writer.Close()
 	defer func() {
-		writer.Close()
-		exec.Command("gofmt", "-w", infos.Config.OutputPath).Start()
+		exec.Command("gofmt", "-w", infos.Config.OutputDir).Start()
 	}()
 	for _, ifc := range infos.Interfaces {
+		file := path.Join(infos.Config.InputDir, ifc.XMLFile)
 		var reader io.Reader
-		if _, err := os.Stat(ifc.File); ifc.Type == "xml" && err == nil {
-			reader, err = os.Open(ifc.File)
+		writer, err = os.Create(path.Join(infos.Config.OutputDir, ifc.GoFile))
+		if _, err := os.Stat(file); err == nil {
+			reader, err = os.Open(file)
 			if err != nil {
-				panic(err.Error() + "(File:" + ifc.File + ")")
+				panic(err.Error() + "(File:" + file + ")")
 			}
-			GenInterfaceCode(reader, writer, ifc.Dest, ifc.Path, ifc.Name, ifc.ObjName)
+			info := GetInterfaceInfo(reader, ifc.Interface)
+			GenInterfaceCode(infos.Config.PkgName, info, writer, infos.Config.DestName, ifc.Interface, ifc.ObjectName)
+			if ifc.TestPath != "" {
+				var test_writer io.Writer
+				test_writer, err = os.Create(path.Join(infos.Config.OutputDir, path.Base(ifc.GoFile)+"_test.go"))
+				genTest(ifc.TestPath, infos.Config.PkgName, ifc.ObjectName, test_writer, info)
+			}
 			reader.(*os.File).Close()
-		} else if ifc.Type == "introspect" {
-			conn, _ := dbus.SessionBus()
+		} else {
+			conn, _ := dbus.SystemBus()
 			var xml string
-			if err := conn.Object(ifc.Dest, dbus.ObjectPath(ifc.Path)).Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&xml); err != nil {
-				panic(err.Error() + "Interface " + ifc.Name + " is can't dynamic introspect")
+			if err := conn.Object(ifc.Dest, dbus.ObjectPath(ifc.ObjectPath)).Call("org.freedesktop.DBus.Introspectable.Introspect", 0).Store(&xml); err != nil {
+				panic(err.Error() + "Interface " + ifc.Interface + " is can't dynamic introspect")
 			}
-			GenInterfaceCode(bytes.NewBufferString(xml), writer, ifc.Dest, ifc.Path, ifc.Name, ifc.ObjName)
+			GenInterfaceCode(infos.Config.PkgName, GetInterfaceInfo(bytes.NewBufferString(xml), ifc.Interface), writer, infos.Config.DestName, ifc.Interface, ifc.ObjectName)
 
 		}
+		writer.Close()
 	}
+}
+
+func genTest(testPath, pkgName string, objName string, writer io.Writer, info dbus.InterfaceInfo) {
+	funcs := template.FuncMap{
+		"TestPath": func() string { return testPath },
+		"PkgName":  func() string { return pkgName },
+		"ObjName":  func() string { return objName },
+		/*"GetTestValue": func(args []dbus.ArgInfo) string {*/
+		/*},*/
+	}
+	template.Must(template.New("testing").Funcs(funcs).Parse(__TEST_TEMPLATE)).Execute(writer, info)
 }

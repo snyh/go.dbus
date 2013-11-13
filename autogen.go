@@ -98,11 +98,23 @@ func genInterfaceInfo(ifc interface{}) *InterfaceInfo {
 			if access != "read" {
 				access = "readwrite"
 			}
-			ifc_info.Properties = append(ifc_info.Properties, PropertyInfo{
-				Name:   field.Name,
-				Type:   SignatureOfType(field.Type).String(),
-				Access: access,
-			})
+			if field.Type.Implements(propertyType) {
+				field_v := getValueOf(ifc).Field(i)
+				t := field_v.MethodByName("GetType").Interface().(func() reflect.Type)()
+				if t != nil {
+					ifc_info.Properties = append(ifc_info.Properties, PropertyInfo{
+						Name:   field.Name,
+						Type:   SignatureOfType(t).String(),
+						Access: access,
+					})
+				}
+			} else {
+				ifc_info.Properties = append(ifc_info.Properties, PropertyInfo{
+					Name:   field.Name,
+					Type:   SignatureOfType(field.Type).String(),
+					Access: access,
+				})
+			}
 		}
 	}
 
@@ -113,13 +125,13 @@ func InstallOnSession(obj DBusObject) error {
 	info := obj.GetDBusInfo()
 	path := ObjectPath(info.ObjectPath)
 	if path.IsValid() {
-		return installOnSessionAny(obj, info.Dest, path, info.Interface)
+		return InstallOnSessionAny(obj, info.Dest, path, info.Interface)
 	}
 	return errors.New("ObjectPath " + info.ObjectPath + " is invalid")
 }
 
 //TODO: Need exported?
-func installOnSessionAny(v interface{}, dest_name string, path ObjectPath, iface string) error {
+func InstallOnSessionAny(v interface{}, dest_name string, path ObjectPath, iface string) error {
 	conn, err := SessionBus()
 	if err != nil {
 		return err
@@ -180,7 +192,7 @@ func export(c *Conn, v interface{}, name string, path ObjectPath, iface string) 
 		infos["org.freedesktop.DBus.Introspectable"] = IntrospectProxy{infos, make(map[string]bool)}
 	}
 	if _, ok := infos["org.freedesktop.DBus.Properties"]; !ok {
-		infos["org.freedesktop.DBus.Properties"] = PropertiesProxy{infos}
+		infos["org.freedesktop.DBus.Properties"] = PropertiesProxy{infos, nil}
 	}
 	return nil
 }
