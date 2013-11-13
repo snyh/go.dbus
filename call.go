@@ -146,26 +146,6 @@ func (o *Object) Path() ObjectPath {
 	return o.path
 }
 
-func (obj *Object) GetProperty(p string) (Variant, error) {
-
-	idx := strings.LastIndex(p, ".")
-	if idx == -1 || idx+1 == len(p) {
-		return Variant{}, errors.New("dbus: invalid property " + p)
-	}
-
-	iface := p[:idx]
-	prop := p[idx+1:]
-
-	result := Variant{}
-	err := obj.Call("org.freedesktop.DBus.Properties.Get", 0, iface, prop).Store(&result)
-
-	if err != nil {
-		return Variant{}, err
-	}
-
-	return result, nil
-}
-
 func (obj *Object) SetProperty(p string, v Variant) error {
 	idx := strings.LastIndex(p, ".")
 	if idx == -1 || idx+1 == len(p) {
